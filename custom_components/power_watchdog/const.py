@@ -14,3 +14,6 @@ OFFLINE_STATES = {"unavailable", "unknown", "offline"}
 
 CONF_STALE_TIMEOUT_SECONDS = "stale_timeout_seconds"
 DEFAULT_STALE_TIMEOUT_SECONDS = 300
+
+CONF_NOTIFY_ON_START = "notify_on_start"
+DEFAULT_NOTIFY_ON_START = True

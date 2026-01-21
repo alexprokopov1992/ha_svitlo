@@ -14,6 +14,8 @@ from .const import (
     DEFAULT_DEBOUNCE_SECONDS,
     CONF_STALE_TIMEOUT_SECONDS,
     DEFAULT_STALE_TIMEOUT_SECONDS,
+    CONF_NOTIFY_ON_START,
+    DEFAULT_NOTIFY_ON_START,
 )
 
 
@@ -36,6 +38,7 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Required(CONF_TELEGRAM_CHAT_ID): selector.TextSelector(),
 
+                # voltage sensor
                 vol.Required(CONF_VOLTAGE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig()
                 ),
@@ -47,6 +50,8 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_STALE_TIMEOUT_SECONDS, default=DEFAULT_STALE_TIMEOUT_SECONDS): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=3600, step=10, mode=selector.NumberSelectorMode.BOX)
                 ),
+
+                vol.Optional(CONF_NOTIFY_ON_START, default=DEFAULT_NOTIFY_ON_START): selector.BooleanSelector(),
             }
         )
 

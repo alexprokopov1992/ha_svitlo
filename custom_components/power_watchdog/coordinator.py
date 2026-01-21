@@ -14,14 +14,16 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_DEBOUNCE_SECONDS,
-    CONF_ENTITY_ID,
-    CONF_VOLTAGE_ENTITY_ID,
+    CONF_ENTITY_ID,                # fallback (старый ключ)
+    CONF_VOLTAGE_ENTITY_ID,        # новый ключ
     CONF_TELEGRAM_CHAT_ID,
     CONF_TELEGRAM_TOKEN,
     DEFAULT_DEBOUNCE_SECONDS,
     OFFLINE_STATES,
     CONF_STALE_TIMEOUT_SECONDS,
     DEFAULT_STALE_TIMEOUT_SECONDS,
+    CONF_NOTIFY_ON_START,
+    DEFAULT_NOTIFY_ON_START,
 )
 from .telegram import async_send_telegram
 
@@ -42,7 +44,6 @@ def _is_online(state_str: str | None) -> bool:
 
 
 def _format_duration(seconds: float | None) -> str | None:
-    """Human-friendly duration like '2г 3х 10с'."""
     if seconds is None:
         return None
     if seconds < 0:
@@ -57,9 +58,9 @@ def _format_duration(seconds: float | None) -> str | None:
     if days:
         parts.append(f"{days}д")
     if hours:
-        parts.append(f"{hours}г")
+        parts.append(f"{hours}ч")
     if minutes:
-        parts.append(f"{minutes}х")
+        parts.append(f"{minutes}м")
     parts.append(f"{secs}с")
     return " ".join(parts)
 
@@ -89,6 +90,8 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._chat_id = entry.data[CONF_TELEGRAM_CHAT_ID]
         self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
 
+        self._notify_on_start = bool(entry.data.get(CONF_NOTIFY_ON_START, DEFAULT_NOTIFY_ON_START))
+
         self._probe_when_offline = True
         self._probe_every = 20
         self._last_probe_ts = 0.0
@@ -114,7 +117,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         return (online, st.state, age)
 
     async def async_start(self) -> None:
-        online, state, _age = self._compute_online()
+        online, state, age = self._compute_online()
         now = dt_util.utcnow()
 
         if online:
@@ -131,6 +134,23 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                 state=state,
             )
         )
+
+        # Сообщение при запуске интеграции (однократно на старт entry)
+        if self._notify_on_start:
+            title = "🟦 Бот було перезапущено"
+            status = "✅ Зараз: світло є" if online else "❌ Зараз: світла немає"
+            extra = ""
+            if age is not None:
+                extra = f"Дані оновлювались: {int(age)}с тому\n"
+
+            text = (
+                f"{title}\n\n"
+                f"{status}\n"
+                f"{extra}"
+                f"Пристрій: {self._voltage_entity_id}\n"
+                f"Напруга: {state} В\n"
+            )
+            self.hass.async_create_task(async_send_telegram(self.hass, self._token, self._chat_id, text))
 
         @callback
         def _handle(event):
@@ -167,7 +187,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         )
 
     async def _periodic_check(self, _now) -> None:
-
         if self.data and self._probe_when_offline and (not self.data.online):
             now_ts = time.time()
             if now_ts - self._last_probe_ts >= self._probe_every:
@@ -179,7 +198,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                         {"entity_id": self._voltage_entity_id},
                         blocking=True,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _LOGGER.exception("update_entity probe failed")
 
         online, state, age = self._compute_online()
@@ -223,7 +242,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             now = dt_util.utcnow()
 
             duration_line = None
-
             if prev_online is not None and prev_online != new_online:
                 if prev_online and (not new_online):
                     online_for = (now - self._online_since).total_seconds() if self._online_since else None
