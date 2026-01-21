@@ -24,6 +24,8 @@ from .const import (
     DEFAULT_STALE_TIMEOUT_SECONDS,
     CONF_NOTIFY_ON_START,
     DEFAULT_NOTIFY_ON_START,
+    CONF_REFRESH_SECONDS,
+    DEFAULT_REFRESH_SECONDS,
 )
 from .telegram import async_send_telegram
 
@@ -99,6 +101,9 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         # Таймеры длительности
         self._online_since = None
         self._offline_since = None
+
+        self._refresh_every = int(entry.data.get(CONF_REFRESH_SECONDS, DEFAULT_REFRESH_SECONDS))
+        self._last_refresh_ts = 0.0
 
     def _get_report_time(self, st) -> object:
         rep = getattr(st, "last_reported", None)
@@ -225,6 +230,20 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     )
                 except Exception:  # noqa: BLE001
                     _LOGGER.exception("update_entity probe failed")
+
+        now_ts = time.time()
+
+        if self._refresh_every > 0 and (now_ts - self._last_refresh_ts >= self._refresh_every):
+            self._last_refresh_ts = now_ts
+            try:
+                await self.hass.services.async_call(
+                    "homeassistant",
+                    "update_entity",
+                    {"entity_id": self._voltage_entity_id},
+                    blocking=True,
+                )
+            except Exception:
+                _LOGGER.exception("update_entity refresh failed")
 
         online, state, age = self._compute_online()
         current = self.data.online if self.data else None

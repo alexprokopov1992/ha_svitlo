@@ -16,6 +16,8 @@ from .const import (
     DEFAULT_STALE_TIMEOUT_SECONDS,
     CONF_NOTIFY_ON_START,
     DEFAULT_NOTIFY_ON_START,
+    CONF_REFRESH_SECONDS,
+    DEFAULT_REFRESH_SECONDS,
 )
 
 
@@ -49,6 +51,10 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 vol.Optional(CONF_STALE_TIMEOUT_SECONDS, default=DEFAULT_STALE_TIMEOUT_SECONDS): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=3600, step=10, mode=selector.NumberSelectorMode.BOX)
+                ),
+
+                vol.Optional(CONF_REFRESH_SECONDS, default=DEFAULT_REFRESH_SECONDS): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=600, step=5, mode=selector.NumberSelectorMode.BOX)
                 ),
 
                 vol.Optional(CONF_NOTIFY_ON_START, default=DEFAULT_NOTIFY_ON_START): selector.BooleanSelector(),
