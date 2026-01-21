@@ -58,9 +58,9 @@ def _format_duration(seconds: float | None) -> str | None:
     if days:
         parts.append(f"{days}д")
     if hours:
-        parts.append(f"{hours}ч")
+        parts.append(f"{hours}г")
     if minutes:
-        parts.append(f"{minutes}м")
+        parts.append(f"{minutes}хв")
     parts.append(f"{secs}с")
     return " ".join(parts)
 
@@ -89,13 +89,14 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._token = entry.data[CONF_TELEGRAM_TOKEN]
         self._chat_id = entry.data[CONF_TELEGRAM_CHAT_ID]
         self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
-
         self._notify_on_start = bool(entry.data.get(CONF_NOTIFY_ON_START, DEFAULT_NOTIFY_ON_START))
 
+        # Пробуем принудительно обновлять сущность, когда оффлайн
         self._probe_when_offline = True
         self._probe_every = 20
         self._last_probe_ts = 0.0
 
+        # Таймеры длительности
         self._online_since = None
         self._offline_since = None
 
@@ -116,6 +117,16 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
         return (online, st.state, age)
 
+    def _sync_data_without_notify(self, online: bool, state: str | None) -> None:
+        """Обновить coordinator.data без отправки сообщений (для дедупликации)."""
+        self.async_set_updated_data(
+            WatchdogData(
+                online=online,
+                watched_entity_id=self._voltage_entity_id,
+                state=state,
+            )
+        )
+
     async def async_start(self) -> None:
         online, state, age = self._compute_online()
         now = dt_util.utcnow()
@@ -127,15 +138,9 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             self._offline_since = now
             self._online_since = None
 
-        self.async_set_updated_data(
-            WatchdogData(
-                online=online,
-                watched_entity_id=self._voltage_entity_id,
-                state=state,
-            )
-        )
+        self._sync_data_without_notify(online, state)
 
-        # Сообщение при запуске интеграции (однократно на старт entry)
+        # Сообщение при запуске интеграции
         if self._notify_on_start:
             title = "🟦 Бот було перезапущено"
             status = "✅ Зараз: світло є" if online else "❌ Зараз: світла немає"
@@ -143,23 +148,42 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             if age is not None:
                 extra = f"Дані оновлювались: {int(age)}с тому\n"
 
-            text = (
-                f"{title}\n\n"
-                f"{status}\n"
-                f"{extra}"
-                f"Пристрій: {self._voltage_entity_id}\n"
-                f"Напруга: {state} В\n"
+            voltage_line = ""
+            if state is not None and state not in OFFLINE_STATES:
+                voltage_line = f"Напруга: {state} В\n"
+            elif state in OFFLINE_STATES:
+                voltage_line = f"Напруга: {state} В\n"
+
+            if online:
+                text = (
+                    f"{title}\n\n"
+                    f"{status}\n"
+                    f"{extra}"
+                    f"Пристрій: {self._voltage_entity_id}\n"
+                    f"{voltage_line}"
+                )
+            else:
+                text = (
+                    f"{title}\n\n"
+                    f"{status}\n"
+                    f"Пристрій: {self._voltage_entity_id}\n"
+                )
+            self.hass.async_create_task(
+                async_send_telegram(self.hass, self._token, self._chat_id, text)
             )
-            self.hass.async_create_task(async_send_telegram(self.hass, self._token, self._chat_id, text))
 
         @callback
         def _handle(event):
             old_state = event.data.get("old_state")
             new_state = event.data.get("new_state")
-            old_online = _is_online(old_state.state if old_state else None)
-            new_online = _is_online(new_state.state if new_state else None)
 
-            if old_online == new_online:
+            new_state_str = new_state.state if new_state else None
+            new_online = _is_online(new_state_str)
+
+            # ✅ ДЕДУПЛИКАЦИЯ: если интеграция уже в этом состоянии — не шлём сообщение
+            if self.data is not None and self.data.online == new_online:
+                # но обновим state, чтобы в атрибутах было актуально (например 224.2 -> unavailable)
+                self._sync_data_without_notify(new_online, new_state_str)
                 return
 
             if self._pending_task and not self._pending_task.done():
@@ -170,7 +194,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     new_online=new_online,
                     reason="state_change",
                     old_state=(old_state.state if old_state else None),
-                    new_state=(new_state.state if new_state else None),
+                    new_state=new_state_str,
                 )
             )
 
@@ -187,6 +211,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         )
 
     async def _periodic_check(self, _now) -> None:
+        # Если сейчас оффлайн — пробуем обновить voltage sensor
         if self.data and self._probe_when_offline and (not self.data.online):
             now_ts = time.time()
             if now_ts - self._last_probe_ts >= self._probe_every:
@@ -203,7 +228,13 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
         online, state, age = self._compute_online()
         current = self.data.online if self.data else None
-        if current is None or online == current:
+        if current is None:
+            return
+
+        # Если состояние не изменилось — просто синхронизируем state и выходим
+        if online == current:
+            if self.data.state != state:
+                self._sync_data_without_notify(online, state)
             return
 
         if self._pending_task and not self._pending_task.done():
@@ -241,53 +272,64 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             prev_online = self.data.online if self.data else None
             now = dt_util.utcnow()
 
+            # Если по какой-то причине уже синхронизированы — не шлём повторно
+            if prev_online is not None and prev_online == new_online:
+                self._sync_data_without_notify(new_online, current_state)
+                return
+
             duration_line = None
+            extra = ""
+
             if prev_online is not None and prev_online != new_online:
                 if prev_online and (not new_online):
+                    # online -> offline
                     online_for = (now - self._online_since).total_seconds() if self._online_since else None
                     duration_line = _format_duration(online_for)
                     self._offline_since = now
                     self._online_since = None
+                    if duration_line:
+                        extra = f"Світло було: {duration_line}\n"
                 elif (not prev_online) and new_online:
+                    # offline -> online
                     offline_for = (now - self._offline_since).total_seconds() if self._offline_since else None
                     duration_line = _format_duration(offline_for)
                     self._online_since = now
                     self._offline_since = None
+                    if duration_line:
+                        extra = f"Світла не було: {duration_line}\n"
             else:
-                if new_online and self._online_since is None:
+                # первая инициализация
+                if new_online:
                     self._online_since = now
                     self._offline_since = None
-                if (not new_online) and self._offline_since is None:
+                else:
                     self._offline_since = now
                     self._online_since = None
 
-            self.async_set_updated_data(
-                WatchdogData(
-                    online=new_online,
-                    watched_entity_id=self._voltage_entity_id,
-                    state=current_state
-                )
-            )
+            # Обновляем данные
+            self._sync_data_without_notify(new_online, current_state)
 
-            title = "✅ Світло з'явилось" if new_online else "❌ Світло зникло"
+            # Текст сообщения (как у тебя на скринах)
+            title = "✅ Світло є" if new_online else "❌ Світло зникло"
+
             reason_line = f"Reason: {reason}"
             if reason == "stale_timeout" and age is not None:
                 reason_line += f" (no updates for {int(age)}s)"
 
-            extra = ""
-            if prev_online is not None and prev_online != new_online and duration_line:
-                if new_online:
-                    extra = f"Світла не було: {duration_line}\n"
+            voltage_line = ""
+            if current_state is not None:
+                # Если число — добавляем "В", если unavailable/unknown — тоже покажем
+                if current_state in OFFLINE_STATES:
+                    voltage_line = f"Напруга: {current_state} В\n"
                 else:
-                    extra = f"Світло було: {duration_line}\n"
+                    voltage_line = f"Напруга: {current_state} В\n"
 
             text = (
                 f"{title}\n\n"
                 f"{extra}"
                 # f"{reason_line}\n"
-                # f"Entity: {self._voltage_entity_id}\n"
-                # f"Old: {old_state}\n"
-                f"Напруга: {new_state} В\n"
+                # f"Пристрій: {self._voltage_entity_id}\n"
+                f"{voltage_line}"
             )
 
             await async_send_telegram(self.hass, self._token, self._chat_id, text)
