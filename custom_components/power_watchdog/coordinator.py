@@ -41,6 +41,29 @@ def _is_online(state_str: str | None) -> bool:
     return state_str not in OFFLINE_STATES
 
 
+def _format_duration(seconds: float | None) -> str | None:
+    """Human-friendly duration like '2ч 3м 10с'."""
+    if seconds is None:
+        return None
+    if seconds < 0:
+        seconds = 0
+
+    total = int(seconds)
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+
+    parts = []
+    if days:
+        parts.append(f"{days}д")
+    if hours:
+        parts.append(f"{hours}ч")
+    if minutes:
+        parts.append(f"{minutes}м")
+    parts.append(f"{secs}с")
+    return " ".join(parts)
+
+
 class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
@@ -57,7 +80,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._stale_timeout = int(entry.data.get(CONF_STALE_TIMEOUT_SECONDS, DEFAULT_STALE_TIMEOUT_SECONDS))
         self._check_interval = 15
 
-        # ТЕПЕРЬ контролируем voltage sensor.
+        # Контролируем voltage sensor.
         # Фолбэк на старый key, если entry создан раньше.
         self._voltage_entity_id = (
             entry.data.get(CONF_VOLTAGE_ENTITY_ID)
@@ -72,6 +95,10 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._probe_when_offline = True
         self._probe_every = 20
         self._last_probe_ts = 0.0
+
+        # Таймеры длительности
+        self._online_since = None  # datetime
+        self._offline_since = None  # datetime
 
     def _get_report_time(self, st) -> object:
         """
@@ -98,6 +125,16 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
     async def async_start(self) -> None:
         online, state, _age = self._compute_online()
+        now = dt_util.utcnow()
+
+        # Инициализируем таймеры
+        if online:
+            self._online_since = now
+            self._offline_since = None
+        else:
+            self._offline_since = now
+            self._online_since = None
+
         self.async_set_updated_data(
             WatchdogData(
                 online=online,
@@ -197,6 +234,35 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             if current_online != new_online:
                 return
 
+            prev_online = self.data.online if self.data else None
+            now = dt_util.utcnow()
+
+            # Посчитать длительность и обновить "since"-таймеры
+            duration_line = None
+
+            if prev_online is not None and prev_online != new_online:
+                if prev_online and (not new_online):
+                    # online -> offline
+                    online_for = (now - self._online_since).total_seconds() if self._online_since else None
+                    duration_line = _format_duration(online_for)
+                    self._offline_since = now
+                    self._online_since = None
+                elif (not prev_online) and new_online:
+                    # offline -> online
+                    offline_for = (now - self._offline_since).total_seconds() if self._offline_since else None
+                    duration_line = _format_duration(offline_for)
+                    self._online_since = now
+                    self._offline_since = None
+            else:
+                # Если это первая инициализация/без перехода — просто синхронизируем таймеры
+                if new_online and self._online_since is None:
+                    self._online_since = now
+                    self._offline_since = None
+                if (not new_online) and self._offline_since is None:
+                    self._offline_since = now
+                    self._online_since = None
+
+            # Обновляем данные для binary_sensor
             self.async_set_updated_data(
                 WatchdogData(
                     online=new_online,
@@ -210,13 +276,23 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             if reason == "stale_timeout" and age is not None:
                 reason_line += f" (no updates for {int(age)}s)"
 
+            # Длительности в сообщение
+            extra = ""
+            if prev_online is not None and prev_online != new_online and duration_line:
+                if new_online:
+                    extra = f"Света не было: {duration_line}\n"
+                else:
+                    extra = f"Свет был: {duration_line}\n"
+
             text = (
                 f"{title}\n\n"
+                f"{extra}"
                 f"{reason_line}\n"
                 f"Entity: {self._voltage_entity_id}\n"
                 f"Old: {old_state}\n"
                 f"New: {new_state}\n"
             )
+
             await async_send_telegram(self.hass, self._token, self._chat_id, text)
 
         except asyncio.CancelledError:

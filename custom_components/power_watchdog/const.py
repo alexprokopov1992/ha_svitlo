@@ -15,4 +15,4 @@ DEFAULT_DEBOUNCE_SECONDS = 10
 OFFLINE_STATES = {"unavailable", "unknown", "offline"}
 
 CONF_STALE_TIMEOUT_SECONDS = "stale_timeout_seconds"
-DEFAULT_STALE_TIMEOUT_SECONDS = 120  # 2 минуты
+DEFAULT_STALE_TIMEOUT_SECONDS = 180  # 3 минуты
