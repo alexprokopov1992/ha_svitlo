@@ -339,7 +339,8 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             if current_state is not None:
                 # Если число — добавляем "В", если unavailable/unknown — тоже покажем
                 if current_state in OFFLINE_STATES:
-                    voltage_line = f"Напруга: {current_state} В\n"
+                    # voltage_line = f"Напруга: {current_state} В\n"
+                    voltage_line = f""
                 else:
                     voltage_line = f"Напруга: {current_state} В\n"
 
