@@ -9,20 +9,25 @@ from .const import (
     CONF_TELEGRAM_TOKEN,
     CONF_TELEGRAM_CHAT_ID,
     CONF_ENTITY_ID,
+    CONF_VOLTAGE_ENTITY_ID,
     CONF_DEBOUNCE_SECONDS,
     DEFAULT_DEBOUNCE_SECONDS,
     CONF_STALE_TIMEOUT_SECONDS,
     DEFAULT_STALE_TIMEOUT_SECONDS,
 )
 
+
 class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
-            await self.async_set_unique_id(f"power_watchdog::{user_input[CONF_ENTITY_ID]}")
+            # Уникальность — по voltage sensor entity_id
+            await self.async_set_unique_id(
+                f"power_watchdog::{user_input[CONF_VOLTAGE_ENTITY_ID]}"
+            )
             self._abort_if_unique_id_configured()
-            title = f"Power Watchdog: {user_input[CONF_ENTITY_ID]}"
+            title = f"Power Watchdog: {user_input[CONF_VOLTAGE_ENTITY_ID]}"
             return self.async_create_entry(title=title, data=user_input)
 
         schema = vol.Schema(
@@ -31,14 +36,20 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
                 vol.Required(CONF_TELEGRAM_CHAT_ID): selector.TextSelector(),
-                vol.Required(CONF_ENTITY_ID): selector.EntitySelector(selector.EntitySelectorConfig()),
+
+                # Теперь выбираем именно датчик напряжения (например sensor.smart_plug_2_voltage)
+                vol.Required(CONF_VOLTAGE_ENTITY_ID): selector.EntitySelector(
+                    selector.EntitySelectorConfig()
+                ),
+
                 vol.Optional(CONF_DEBOUNCE_SECONDS, default=DEFAULT_DEBOUNCE_SECONDS): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=120, step=1, mode=selector.NumberSelectorMode.BOX)
                 ),
-                vol.Optional(CONF_STALE_TIMEOUT_SECONDS,
-                             default=DEFAULT_STALE_TIMEOUT_SECONDS): selector.NumberSelector(
+
+                vol.Optional(CONF_STALE_TIMEOUT_SECONDS, default=DEFAULT_STALE_TIMEOUT_SECONDS): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=3600, step=10, mode=selector.NumberSelectorMode.BOX)
                 ),
             }
         )
+
         return self.async_show_form(step_id="user", data_schema=schema)

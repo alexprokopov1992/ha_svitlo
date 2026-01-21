@@ -4,18 +4,18 @@ import time
 import asyncio
 import logging
 from dataclasses import dataclass
-
 from datetime import timedelta
-from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.util import dt as dt_util
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_DEBOUNCE_SECONDS,
-    CONF_ENTITY_ID,
+    CONF_ENTITY_ID,                # fallback (старый ключ)
+    CONF_VOLTAGE_ENTITY_ID,        # новый ключ
     CONF_TELEGRAM_CHAT_ID,
     CONF_TELEGRAM_TOKEN,
     DEFAULT_DEBOUNCE_SECONDS,
@@ -27,16 +27,19 @@ from .telegram import async_send_telegram
 
 _LOGGER = logging.getLogger(__name__)
 
+
 @dataclass(frozen=True)
 class WatchdogData:
     online: bool
     watched_entity_id: str
     state: str | None
 
+
 def _is_online(state_str: str | None) -> bool:
     if state_str is None:
         return False
     return state_str not in OFFLINE_STATES
+
 
 class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -48,31 +51,46 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         )
         self.entry = entry
         self._unsub = None
+        self._unsub_timer = None
         self._pending_task: asyncio.Task | None = None
 
         self._stale_timeout = int(entry.data.get(CONF_STALE_TIMEOUT_SECONDS, DEFAULT_STALE_TIMEOUT_SECONDS))
-        self._unsub_timer = None
         self._check_interval = 15
 
-        self._entity_id = entry.data[CONF_ENTITY_ID]
+        # ТЕПЕРЬ контролируем voltage sensor.
+        # Фолбэк на старый key, если entry создан раньше.
+        self._voltage_entity_id = (
+            entry.data.get(CONF_VOLTAGE_ENTITY_ID)
+            or entry.data.get(CONF_ENTITY_ID)
+        )
+
         self._token = entry.data[CONF_TELEGRAM_TOKEN]
         self._chat_id = entry.data[CONF_TELEGRAM_CHAT_ID]
         self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
 
-        self._probe_when_offline = True  # можно позже сделать опцией
-        self._probe_every = 20  # секунд, как часто пинать обновление
+        # Пробуем принудительно обновлять сущность, когда оффлайн
+        self._probe_when_offline = True
+        self._probe_every = 20
         self._last_probe_ts = 0.0
 
+    def _get_report_time(self, st) -> object:
+        """
+        В новых версиях HA есть st.last_reported — он лучше для heartbeat.
+        Если его нет, используем last_updated.
+        """
+        rep = getattr(st, "last_reported", None)
+        return rep or st.last_updated
+
     def _compute_online(self) -> tuple[bool, str | None, float | None]:
-        st = self.hass.states.get(self._entity_id)
+        st = self.hass.states.get(self._voltage_entity_id)
         if st is None:
             return (False, None, None)
 
-        # базовая проверка unavailable/unknown/offline
+        # Базовая проверка unavailable/unknown/offline
         online = _is_online(st.state)
 
         # stale timeout: если давно не было обновлений — считаем оффлайн
-        age = (dt_util.utcnow() - st.last_updated).total_seconds()
+        age = (dt_util.utcnow() - self._get_report_time(st)).total_seconds()
         if online and self._stale_timeout > 0 and age > self._stale_timeout:
             return (False, st.state, age)
 
@@ -80,7 +98,13 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
     async def async_start(self) -> None:
         online, state, _age = self._compute_online()
-        self.async_set_updated_data(WatchdogData(online=online, watched_entity_id=self._entity_id, state=state))
+        self.async_set_updated_data(
+            WatchdogData(
+                online=online,
+                watched_entity_id=self._voltage_entity_id,
+                state=state,
+            )
+        )
 
         @callback
         def _handle(event):
@@ -88,6 +112,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             new_state = event.data.get("new_state")
             old_online = _is_online(old_state.state if old_state else None)
             new_online = _is_online(new_state.state if new_state else None)
+
             if old_online == new_online:
                 return
 
@@ -103,14 +128,22 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                 )
             )
 
-        self._unsub = async_track_state_change_event(self.hass, [self._entity_id], _handle)
+        # Слушаем изменения именно voltage sensor
+        self._unsub = async_track_state_change_event(
+            self.hass,
+            [self._voltage_entity_id],
+            _handle
+        )
 
+        # Периодическая проверка stale + probe
         self._unsub_timer = async_track_time_interval(
-            self.hass, self._periodic_check, timedelta(seconds=self._check_interval)
+            self.hass,
+            self._periodic_check,
+            timedelta(seconds=self._check_interval)
         )
 
     async def _periodic_check(self, _now) -> None:
-        # Если сейчас оффлайн — попробуем принудительно обновить сущность
+        # Если сейчас оффлайн — попробуем принудительно обновить voltage sensor
         if self.data and self._probe_when_offline and (not self.data.online):
             now_ts = time.time()
             if now_ts - self._last_probe_ts >= self._probe_every:
@@ -119,7 +152,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     await self.hass.services.async_call(
                         "homeassistant",
                         "update_entity",
-                        {"entity_id": self._entity_id},
+                        {"entity_id": self._voltage_entity_id},
                         blocking=True,
                     )
                 except Exception:  # noqa: BLE001
@@ -131,13 +164,12 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         if current is None or online == current:
             return
 
-        # Переход (offline->online или online->offline)
         if self._pending_task and not self._pending_task.done():
             self._pending_task.cancel()
 
         reason = "probe_recovered" if online else (
-            "stale_timeout" if (
-                        age is not None and self._stale_timeout > 0 and age > self._stale_timeout) else "periodic"
+            "stale_timeout" if (age is not None and self._stale_timeout > 0 and age > self._stale_timeout)
+            else "periodic"
         )
 
         self._pending_task = self.hass.async_create_task(
@@ -149,19 +181,28 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             )
         )
 
-    async def _debounced_commit_and_notify(self, new_online: bool, reason: str, old_state: str | None,
-                                           new_state: str | None) -> None:
+    async def _debounced_commit_and_notify(
+        self,
+        new_online: bool,
+        reason: str,
+        old_state: str | None,
+        new_state: str | None
+    ) -> None:
         try:
             if self._debounce > 0:
                 await asyncio.sleep(self._debounce)
 
-            # перепроверяем текущий online (с учетом stale)
+            # перепроверяем текущий online
             current_online, current_state, age = self._compute_online()
             if current_online != new_online:
                 return
 
             self.async_set_updated_data(
-                WatchdogData(online=new_online, watched_entity_id=self._entity_id, state=current_state)
+                WatchdogData(
+                    online=new_online,
+                    watched_entity_id=self._voltage_entity_id,
+                    state=current_state
+                )
             )
 
             title = "✅ Свет/связь ЕСТЬ (устройство онлайн)" if new_online else "❌ Свет/связи НЕТ (устройство оффлайн)"
@@ -172,11 +213,12 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             text = (
                 f"{title}\n\n"
                 f"{reason_line}\n"
-                f"Entity: {self._entity_id}\n"
+                f"Entity: {self._voltage_entity_id}\n"
                 f"Old: {old_state}\n"
                 f"New: {new_state}\n"
             )
             await async_send_telegram(self.hass, self._token, self._chat_id, text)
+
         except asyncio.CancelledError:
             return
 
