@@ -22,7 +22,6 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
-            # Уникальность — по voltage sensor entity_id
             await self.async_set_unique_id(
                 f"power_watchdog::{user_input[CONF_VOLTAGE_ENTITY_ID]}"
             )
@@ -37,7 +36,6 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Required(CONF_TELEGRAM_CHAT_ID): selector.TextSelector(),
 
-                # Теперь выбираем именно датчик напряжения (например sensor.smart_plug_2_voltage)
                 vol.Required(CONF_VOLTAGE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig()
                 ),
