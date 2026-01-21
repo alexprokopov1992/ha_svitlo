@@ -106,12 +106,12 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             )
 
             # Шлём уведомление
-            title = "✅ Свет/связь ЕСТЬ (устройство онлайн)" if new_online else "❌ Свет/связи НЕТ (устройство оффлайн)"
+            title = "✅ Світло є" if new_online else "❌ Світло зникло"
             text = (
                 f"{title}\n\n"
-                f"Entity: {self._entity_id}\n"
-                f"Old: {old_state}\n"
-                f"New: {new_state}\n"
+                f"Пристрій: {self._entity_id}\n"
+                # f"Old: {old_state}\n"
+                # f"New: {new_state}\n"
             )
             await async_send_telegram(self.hass, self._token, self._chat_id, text)
         except asyncio.CancelledError:
