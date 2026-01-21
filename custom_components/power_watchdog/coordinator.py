@@ -93,12 +93,10 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
         self._notify_on_start = bool(entry.data.get(CONF_NOTIFY_ON_START, DEFAULT_NOTIFY_ON_START))
 
-        # Пробуем принудительно обновлять сущность, когда оффлайн
         self._probe_when_offline = True
         self._probe_every = 20
         self._last_probe_ts = 0.0
 
-        # Таймеры длительности
         self._online_since = None
         self._offline_since = None
 
@@ -123,7 +121,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         return (online, st.state, age)
 
     def _sync_data_without_notify(self, online: bool, state: str | None) -> None:
-        """Обновить coordinator.data без отправки сообщений (для дедупликации)."""
         self.async_set_updated_data(
             WatchdogData(
                 online=online,
@@ -145,7 +142,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
         self._sync_data_without_notify(online, state)
 
-        # Сообщение при запуске интеграции
         if self._notify_on_start:
             title = "🟦 Бот було перезапущено"
             status = "✅ Зараз: світло є" if online else "❌ Зараз: світла немає"
@@ -185,9 +181,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             new_state_str = new_state.state if new_state else None
             new_online = _is_online(new_state_str)
 
-            # ✅ ДЕДУПЛИКАЦИЯ: если интеграция уже в этом состоянии — не шлём сообщение
             if self.data is not None and self.data.online == new_online:
-                # но обновим state, чтобы в атрибутах было актуально (например 224.2 -> unavailable)
                 self._sync_data_without_notify(new_online, new_state_str)
                 return
 
@@ -216,7 +210,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         )
 
     async def _periodic_check(self, _now) -> None:
-        # Если сейчас оффлайн — пробуем обновить voltage sensor
         if self.data and self._probe_when_offline and (not self.data.online):
             now_ts = time.time()
             if now_ts - self._last_probe_ts >= self._probe_every:
@@ -250,7 +243,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         if current is None:
             return
 
-        # Если состояние не изменилось — просто синхронизируем state и выходим
         if online == current:
             if self.data.state != state:
                 self._sync_data_without_notify(online, state)
@@ -291,7 +283,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             prev_online = self.data.online if self.data else None
             now = dt_util.utcnow()
 
-            # Если по какой-то причине уже синхронизированы — не шлём повторно
             if prev_online is not None and prev_online == new_online:
                 self._sync_data_without_notify(new_online, current_state)
                 return
@@ -325,10 +316,8 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     self._offline_since = now
                     self._online_since = None
 
-            # Обновляем данные
             self._sync_data_without_notify(new_online, current_state)
 
-            # Текст сообщения (как у тебя на скринах)
             title = "✅ Світло є" if new_online else "❌ Світло зникло"
 
             reason_line = f"Reason: {reason}"
@@ -337,7 +326,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
             voltage_line = ""
             if current_state is not None:
-                # Если число — добавляем "В", если unavailable/unknown — тоже покажем
                 if current_state in OFFLINE_STATES:
                     # voltage_line = f"Напруга: {current_state} В\n"
                     voltage_line = f""
