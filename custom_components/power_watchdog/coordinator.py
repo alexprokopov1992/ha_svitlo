@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -58,6 +59,10 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._chat_id = entry.data[CONF_TELEGRAM_CHAT_ID]
         self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
 
+        self._probe_when_offline = True  # можно позже сделать опцией
+        self._probe_every = 20  # секунд, как часто пинать обновление
+        self._last_probe_ts = 0.0
+
     def _compute_online(self) -> tuple[bool, str | None, float | None]:
         st = self.hass.states.get(self._entity_id)
         if st is None:
@@ -105,24 +110,40 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         )
 
     async def _periodic_check(self, _now) -> None:
+        # Если сейчас оффлайн — попробуем принудительно обновить сущность
+        if self.data and self._probe_when_offline and (not self.data.online):
+            now_ts = time.time()
+            if now_ts - self._last_probe_ts >= self._probe_every:
+                self._last_probe_ts = now_ts
+                try:
+                    await self.hass.services.async_call(
+                        "homeassistant",
+                        "update_entity",
+                        {"entity_id": self._entity_id},
+                        blocking=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.exception("update_entity probe failed")
+
+        # После возможного обновления пересчитываем online
         online, state, age = self._compute_online()
         current = self.data.online if self.data else None
-
-        if current is None:
+        if current is None or online == current:
             return
 
-        if online == current:
-            return
-
-        # Сработал stale переход (или восстановление)
+        # Переход (offline->online или online->offline)
         if self._pending_task and not self._pending_task.done():
             self._pending_task.cancel()
+
+        reason = "probe_recovered" if online else (
+            "stale_timeout" if (
+                        age is not None and self._stale_timeout > 0 and age > self._stale_timeout) else "periodic"
+        )
 
         self._pending_task = self.hass.async_create_task(
             self._debounced_commit_and_notify(
                 new_online=online,
-                reason="stale_timeout" if (
-                            age is not None and self._stale_timeout > 0 and age > self._stale_timeout) else "periodic",
+                reason=reason,
                 old_state=self.data.state,
                 new_state=state,
             )
