@@ -50,7 +50,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
 
     async def async_start(self) -> None:
-        # Инициализируем состояние по текущему state
         st = self.hass.states.get(self._entity_id)
         online = _is_online(st.state if st else None)
         self.async_set_updated_data(
@@ -71,7 +70,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             if old_online == new_online:
                 return
 
-            # debounce: если уже ждём — отменяем
             if self._pending_task and not self._pending_task.done():
                 self._pending_task.cancel()
 
@@ -90,13 +88,11 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             if self._debounce > 0:
                 await asyncio.sleep(self._debounce)
 
-            # Проверим, что текущий state всё ещё соответствует ожидаемому (не “отпрыгнул” обратно)
             st = self.hass.states.get(self._entity_id)
             current_online = _is_online(st.state if st else None)
             if current_online != new_online:
                 return
 
-            # Обновляем данные для sensor-ов
             self.async_set_updated_data(
                 WatchdogData(
                     online=new_online,
@@ -105,13 +101,10 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                 )
             )
 
-            # Шлём уведомление
             title = "✅ Світло є" if new_online else "❌ Світло зникло"
             text = (
                 f"{title}\n\n"
                 f"Пристрій: {self._entity_id}\n"
-                # f"Old: {old_state}\n"
-                # f"New: {new_state}\n"
             )
             await async_send_telegram(self.hass, self._token, self._chat_id, text)
         except asyncio.CancelledError:

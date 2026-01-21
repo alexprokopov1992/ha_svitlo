@@ -27,5 +27,5 @@ async def async_send_telegram(
         if resp.status != 200:
             body = await resp.text()
             _LOGGER.error("Telegram send failed: %s %s", resp.status, body)
-    except Exception:  # noqa: BLE001
+    except Exception:
         _LOGGER.exception("Telegram send exception")
