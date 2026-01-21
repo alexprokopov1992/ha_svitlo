@@ -11,6 +11,8 @@ from .const import (
     CONF_ENTITY_ID,
     CONF_DEBOUNCE_SECONDS,
     DEFAULT_DEBOUNCE_SECONDS,
+    CONF_STALE_TIMEOUT_SECONDS,
+    DEFAULT_STALE_TIMEOUT_SECONDS,
 )
 
 class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -32,6 +34,10 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_ENTITY_ID): selector.EntitySelector(selector.EntitySelectorConfig()),
                 vol.Optional(CONF_DEBOUNCE_SECONDS, default=DEFAULT_DEBOUNCE_SECONDS): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=0, max=120, step=1, mode=selector.NumberSelectorMode.BOX)
+                ),
+                vol.Optional(CONF_STALE_TIMEOUT_SECONDS,
+                             default=DEFAULT_STALE_TIMEOUT_SECONDS): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0, max=3600, step=10, mode=selector.NumberSelectorMode.BOX)
                 ),
             }
         )

@@ -8,7 +8,8 @@
           "telegram_token": "Telegram Bot Token",
           "telegram_chat_id": "Telegram Chat ID",
           "entity_id": "Сущность для контроля (entity_id)",
-          "debounce_seconds": "Задержка (debounce), сек"
+          "debounce_seconds": "Задержка (debounce), сек",
+          "stale_timeout_seconds": "Считать оффлайн, если нет обновлений N сек"
         }
       }
     }

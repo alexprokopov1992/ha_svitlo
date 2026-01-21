@@ -8,7 +8,8 @@
           "telegram_token": "Telegram Bot Token",
           "telegram_chat_id": "Telegram Chat ID",
           "entity_id": "Watched entity",
-          "debounce_seconds": "Debounce seconds"
+          "debounce_seconds": "Debounce seconds",
+          "stale_timeout_seconds": "Offline in no refresh for N sec"
         }
       }
     }

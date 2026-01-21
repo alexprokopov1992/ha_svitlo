@@ -4,6 +4,9 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+from datetime import timedelta
+from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.util import dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -16,6 +19,8 @@ from .const import (
     CONF_TELEGRAM_TOKEN,
     DEFAULT_DEBOUNCE_SECONDS,
     OFFLINE_STATES,
+    CONF_STALE_TIMEOUT_SECONDS,
+    DEFAULT_STALE_TIMEOUT_SECONDS,
 )
 from .telegram import async_send_telegram
 
@@ -44,21 +49,33 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._unsub = None
         self._pending_task: asyncio.Task | None = None
 
+        self._stale_timeout = int(entry.data.get(CONF_STALE_TIMEOUT_SECONDS, DEFAULT_STALE_TIMEOUT_SECONDS))
+        self._unsub_timer = None
+        self._check_interval = 15
+
         self._entity_id = entry.data[CONF_ENTITY_ID]
         self._token = entry.data[CONF_TELEGRAM_TOKEN]
         self._chat_id = entry.data[CONF_TELEGRAM_CHAT_ID]
         self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
 
-    async def async_start(self) -> None:
+    def _compute_online(self) -> tuple[bool, str | None, float | None]:
         st = self.hass.states.get(self._entity_id)
-        online = _is_online(st.state if st else None)
-        self.async_set_updated_data(
-            WatchdogData(
-                online=online,
-                watched_entity_id=self._entity_id,
-                state=st.state if st else None,
-            )
-        )
+        if st is None:
+            return (False, None, None)
+
+        # базовая проверка unavailable/unknown/offline
+        online = _is_online(st.state)
+
+        # stale timeout: если давно не было обновлений — считаем оффлайн
+        age = (dt_util.utcnow() - st.last_updated).total_seconds()
+        if online and self._stale_timeout > 0 and age > self._stale_timeout:
+            return (False, st.state, age)
+
+        return (online, st.state, age)
+
+    async def async_start(self) -> None:
+        online, state, _age = self._compute_online()
+        self.async_set_updated_data(WatchdogData(online=online, watched_entity_id=self._entity_id, state=state))
 
         @callback
         def _handle(event):
@@ -66,7 +83,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             new_state = event.data.get("new_state")
             old_online = _is_online(old_state.state if old_state else None)
             new_online = _is_online(new_state.state if new_state else None)
-
             if old_online == new_online:
                 return
 
@@ -76,6 +92,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             self._pending_task = self.hass.async_create_task(
                 self._debounced_commit_and_notify(
                     new_online=new_online,
+                    reason="state_change",
                     old_state=(old_state.state if old_state else None),
                     new_state=(new_state.state if new_state else None),
                 )
@@ -83,28 +100,60 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
         self._unsub = async_track_state_change_event(self.hass, [self._entity_id], _handle)
 
-    async def _debounced_commit_and_notify(self, new_online: bool, old_state: str | None, new_state: str | None) -> None:
+        self._unsub_timer = async_track_time_interval(
+            self.hass, self._periodic_check, timedelta(seconds=self._check_interval)
+        )
+
+    async def _periodic_check(self, _now) -> None:
+        online, state, age = self._compute_online()
+        current = self.data.online if self.data else None
+
+        if current is None:
+            return
+
+        if online == current:
+            return
+
+        # Сработал stale переход (или восстановление)
+        if self._pending_task and not self._pending_task.done():
+            self._pending_task.cancel()
+
+        self._pending_task = self.hass.async_create_task(
+            self._debounced_commit_and_notify(
+                new_online=online,
+                reason="stale_timeout" if (
+                            age is not None and self._stale_timeout > 0 and age > self._stale_timeout) else "periodic",
+                old_state=self.data.state,
+                new_state=state,
+            )
+        )
+
+    async def _debounced_commit_and_notify(self, new_online: bool, reason: str, old_state: str | None,
+                                           new_state: str | None) -> None:
         try:
             if self._debounce > 0:
                 await asyncio.sleep(self._debounce)
 
-            st = self.hass.states.get(self._entity_id)
-            current_online = _is_online(st.state if st else None)
+            # перепроверяем текущий online (с учетом stale)
+            current_online, current_state, age = self._compute_online()
             if current_online != new_online:
                 return
 
             self.async_set_updated_data(
-                WatchdogData(
-                    online=new_online,
-                    watched_entity_id=self._entity_id,
-                    state=st.state if st else None,
-                )
+                WatchdogData(online=new_online, watched_entity_id=self._entity_id, state=current_state)
             )
 
-            title = "✅ Світло є" if new_online else "❌ Світло зникло"
+            title = "✅ Свет/связь ЕСТЬ (устройство онлайн)" if new_online else "❌ Свет/связи НЕТ (устройство оффлайн)"
+            reason_line = f"Reason: {reason}"
+            if reason == "stale_timeout" and age is not None:
+                reason_line += f" (no updates for {int(age)}s)"
+
             text = (
                 f"{title}\n\n"
-                # f"Пристрій: {self._entity_id}\n"
+                f"{reason_line}\n"
+                f"Entity: {self._entity_id}\n"
+                f"Old: {old_state}\n"
+                f"New: {new_state}\n"
             )
             await async_send_telegram(self.hass, self._token, self._chat_id, text)
         except asyncio.CancelledError:
@@ -117,3 +166,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         if self._unsub:
             self._unsub()
             self._unsub = None
+
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
