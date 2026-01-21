@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Power Watchdog",
+        "description": "Telegram alerts when watched entity goes online/offline.",
+        "data": {
+          "telegram_token": "Telegram Bot Token",
+          "telegram_chat_id": "Telegram Chat ID",
+          "entity_id": "Watched entity",
+          "debounce_seconds": "Debounce seconds"
+        }
+      }
+    }
+  }
+}

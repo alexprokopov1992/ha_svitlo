@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Power Watchdog",
+        "description": "Уведомления в Telegram при смене online/offline у выбранной сущности (например, Tuya-розетки).",
+        "data": {
+          "telegram_token": "Telegram Bot Token",
+          "telegram_chat_id": "Telegram Chat ID",
+          "entity_id": "Сущность для контроля (entity_id)",
+          "debounce_seconds": "Задержка (debounce), сек"
+        }
+      }
+    }
+  }
+}

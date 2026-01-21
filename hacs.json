@@ -1,0 +1,6 @@
+{
+  "name": "Power Watchdog (Telegram)",
+  "content_in_root": false,
+  "render_readme": true,
+  "domains": ["power_watchdog"]
+}
