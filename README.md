@@ -175,5 +175,6 @@ Home Assistant → **Settings → Devices & Services** → `Power Watchdog` → 
 
 ---
 
-## 📄 Ліцензія
-Додай `LICENSE` (наприклад MIT), якщо плануєш публічний репозиторій.
+## 📄 License
+MIT License — див. файл [LICENSE](LICENSE).
+
