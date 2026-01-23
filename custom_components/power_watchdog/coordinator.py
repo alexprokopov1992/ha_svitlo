@@ -26,6 +26,11 @@ from .const import (
     DEFAULT_NOTIFY_ON_START,
     CONF_REFRESH_SECONDS,
     DEFAULT_REFRESH_SECONDS,
+    # NEW
+    CONF_TELEGRAM_ENABLED,
+    DEFAULT_TELEGRAM_ENABLED,
+    CONF_SVITLOBOT_CHANNEL_KEY,
+    DEFAULT_SVITLOBOT_CHANNEL_KEY,
 )
 from .telegram import async_send_telegram
 
@@ -80,18 +85,27 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._unsub_timer = None
         self._pending_task: asyncio.Task | None = None
 
-        self._stale_timeout = int(entry.data.get(CONF_STALE_TIMEOUT_SECONDS, DEFAULT_STALE_TIMEOUT_SECONDS))
+        def _cfg(key, default=None):
+            return entry.options.get(key, entry.data.get(key, default))
+
+        self._stale_timeout = int(_cfg(CONF_STALE_TIMEOUT_SECONDS, DEFAULT_STALE_TIMEOUT_SECONDS))
         self._check_interval = 15
 
         self._voltage_entity_id = (
-            entry.data.get(CONF_VOLTAGE_ENTITY_ID)
-            or entry.data.get(CONF_ENTITY_ID)
+            _cfg(CONF_VOLTAGE_ENTITY_ID)
+            or _cfg(CONF_ENTITY_ID)
         )
 
-        self._token = entry.data[CONF_TELEGRAM_TOKEN]
-        self._chat_id = entry.data[CONF_TELEGRAM_CHAT_ID]
-        self._debounce = int(entry.data.get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
-        self._notify_on_start = bool(entry.data.get(CONF_NOTIFY_ON_START, DEFAULT_NOTIFY_ON_START))
+        self._token = _cfg(CONF_TELEGRAM_TOKEN)
+        self._chat_id = _cfg(CONF_TELEGRAM_CHAT_ID)
+
+        self._debounce = int(_cfg(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS))
+        self._notify_on_start = bool(_cfg(CONF_NOTIFY_ON_START, DEFAULT_NOTIFY_ON_START))
+        self._refresh_every = int(_cfg(CONF_REFRESH_SECONDS, DEFAULT_REFRESH_SECONDS))
+
+        # NEW
+        self._telegram_enabled = bool(_cfg(CONF_TELEGRAM_ENABLED, DEFAULT_TELEGRAM_ENABLED))
+        self._svitlobot_channel_key = str(_cfg(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY))
 
         self._probe_when_offline = True
         self._probe_every = 20
@@ -99,8 +113,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
         self._online_since = None
         self._offline_since = None
-
-        self._refresh_every = int(entry.data.get(CONF_REFRESH_SECONDS, DEFAULT_REFRESH_SECONDS))
         self._last_refresh_ts = 0.0
 
     def _get_report_time(self, st) -> object:
@@ -142,7 +154,8 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
         self._sync_data_without_notify(online, state)
 
-        if self._notify_on_start:
+        # Telegram startup notify (if enabled)
+        if self._notify_on_start and self._telegram_enabled and self._token and self._chat_id:
             title = "🟦 Бот було перезапущено"
             status = "✅ Зараз: світло є" if online else "❌ Зараз: світла немає"
             extra = ""
@@ -169,6 +182,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     f"{status}\n"
                     f"Пристрій: {self._voltage_entity_id}\n"
                 )
+
             self.hass.async_create_task(
                 async_send_telegram(self.hass, self._token, self._chat_id, text)
             )
@@ -292,7 +306,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
             if prev_online is not None and prev_online != new_online:
                 if prev_online and (not new_online):
-                    # online -> offline
                     online_for = (now - self._online_since).total_seconds() if self._online_since else None
                     duration_line = _format_duration(online_for)
                     self._offline_since = now
@@ -300,7 +313,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     if duration_line:
                         extra = f"Світло було: {duration_line}\n"
                 elif (not prev_online) and new_online:
-                    # offline -> online
                     offline_for = (now - self._offline_since).total_seconds() if self._offline_since else None
                     duration_line = _format_duration(offline_for)
                     self._online_since = now
@@ -308,7 +320,6 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     if duration_line:
                         extra = f"Світла не було: {duration_line}\n"
             else:
-                # первая инициализация
                 if new_online:
                     self._online_since = now
                     self._offline_since = None
@@ -317,6 +328,10 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     self._online_since = None
 
             self._sync_data_without_notify(new_online, current_state)
+
+            # If Telegram disabled -> stop here (no notify)
+            if (not self._telegram_enabled) or (not self._token) or (not self._chat_id):
+                return
 
             title = "✅ Світло є" if new_online else "❌ Світло зникло"
 
@@ -327,16 +342,13 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             voltage_line = ""
             if current_state is not None:
                 if current_state in OFFLINE_STATES:
-                    # voltage_line = f"Напруга: {current_state} В\n"
-                    voltage_line = f""
+                    voltage_line = ""
                 else:
                     voltage_line = f"Напруга: {current_state} В\n"
 
             text = (
                 f"{title}\n\n"
                 f"{extra}"
-                # f"{reason_line}\n"
-                # f"Пристрій: {self._voltage_entity_id}\n"
                 f"{voltage_line}"
             )
 

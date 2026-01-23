@@ -3,6 +3,12 @@ DOMAIN = "power_watchdog"
 CONF_TELEGRAM_TOKEN = "telegram_token"
 CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
 
+CONF_TELEGRAM_ENABLED = "telegram_enabled"
+DEFAULT_TELEGRAM_ENABLED = True
+
+CONF_SVITLOBOT_CHANNEL_KEY = "svitlobot_channel_key"
+DEFAULT_SVITLOBOT_CHANNEL_KEY = ""
+
 CONF_ENTITY_ID = "entity_id"
 
 CONF_VOLTAGE_ENTITY_ID = "voltage_entity_id"
@@ -20,3 +26,4 @@ DEFAULT_NOTIFY_ON_START = True
 
 CONF_REFRESH_SECONDS = "refresh_seconds"
 DEFAULT_REFRESH_SECONDS = 30
+

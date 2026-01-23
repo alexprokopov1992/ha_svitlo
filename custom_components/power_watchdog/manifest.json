@@ -1,7 +1,7 @@
 {
   "domain": "power_watchdog",
   "name": "Power Watchdog (Telegram)",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "documentation": "https://github.com/alexprokopov1992/ha_svitlo",
   "requirements": [],
   "codeowners": [],

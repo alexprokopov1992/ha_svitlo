@@ -18,6 +18,11 @@ from .const import (
     DEFAULT_NOTIFY_ON_START,
     CONF_REFRESH_SECONDS,
     DEFAULT_REFRESH_SECONDS,
+    # NEW
+    CONF_TELEGRAM_ENABLED,
+    DEFAULT_TELEGRAM_ENABLED,
+    CONF_SVITLOBOT_CHANNEL_KEY,
+    DEFAULT_SVITLOBOT_CHANNEL_KEY,
 )
 
 
@@ -58,7 +63,41 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
 
                 vol.Optional(CONF_NOTIFY_ON_START, default=DEFAULT_NOTIFY_ON_START): selector.BooleanSelector(),
+
+                # NEW (can be also set on first setup)
+                vol.Optional(CONF_TELEGRAM_ENABLED, default=DEFAULT_TELEGRAM_ENABLED): selector.BooleanSelector(),
+                vol.Optional(CONF_SVITLOBOT_CHANNEL_KEY, default=DEFAULT_SVITLOBOT_CHANNEL_KEY): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
             }
         )
 
         return self.async_show_form(step_id="user", data_schema=schema)
+
+    @staticmethod
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+        return PowerWatchdogOptionsFlow(config_entry)
+
+
+class PowerWatchdogOptionsFlow(config_entries.OptionsFlow):
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        # Defaults: options -> data -> default
+        def _get(key, default):
+            return self.config_entry.options.get(key, self.config_entry.data.get(key, default))
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_TELEGRAM_ENABLED, default=bool(_get(CONF_TELEGRAM_ENABLED, DEFAULT_TELEGRAM_ENABLED))): selector.BooleanSelector(),
+                vol.Optional(CONF_SVITLOBOT_CHANNEL_KEY, default=str(_get(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY))): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+            }
+        )
+
+        return self.async_show_form(step_id="init", data_schema=schema)
