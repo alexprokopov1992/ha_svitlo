@@ -26,15 +26,17 @@ from .const import (
     DEFAULT_NOTIFY_ON_START,
     CONF_REFRESH_SECONDS,
     DEFAULT_REFRESH_SECONDS,
-    # NEW
     CONF_TELEGRAM_ENABLED,
     DEFAULT_TELEGRAM_ENABLED,
     CONF_SVITLOBOT_CHANNEL_KEY,
     DEFAULT_SVITLOBOT_CHANNEL_KEY,
 )
 from .telegram import async_send_telegram
+from .svitlobot import async_channel_ping
 
 _LOGGER = logging.getLogger(__name__)
+
+SVITLOBOT_PING_INTERVAL_S = 30
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             return entry.options.get(key, entry.data.get(key, default))
 
         self._stale_timeout = int(_cfg(CONF_STALE_TIMEOUT_SECONDS, DEFAULT_STALE_TIMEOUT_SECONDS))
-        self._check_interval = 15
+        self._check_interval = 15  # periodic check tick
 
         self._voltage_entity_id = (
             _cfg(CONF_VOLTAGE_ENTITY_ID)
@@ -103,9 +105,8 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._notify_on_start = bool(_cfg(CONF_NOTIFY_ON_START, DEFAULT_NOTIFY_ON_START))
         self._refresh_every = int(_cfg(CONF_REFRESH_SECONDS, DEFAULT_REFRESH_SECONDS))
 
-        # NEW
         self._telegram_enabled = bool(_cfg(CONF_TELEGRAM_ENABLED, DEFAULT_TELEGRAM_ENABLED))
-        self._svitlobot_channel_key = str(_cfg(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY))
+        self._svitlobot_channel_key = str(_cfg(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY)).strip()
 
         self._probe_when_offline = True
         self._probe_every = 20
@@ -114,6 +115,9 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._online_since = None
         self._offline_since = None
         self._last_refresh_ts = 0.0
+
+        # NEW: svitlobot ping throttling
+        self._last_svitlobot_ping_ts = 0.0
 
     def _get_report_time(self, st) -> object:
         rep = getattr(st, "last_reported", None)
@@ -141,6 +145,18 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             )
         )
 
+    def _fire_svitlobot_ping_if_needed(self) -> None:
+        """Ping svitlobot, but not more often than SVITLOBOT_PING_INTERVAL_S."""
+        if not self._svitlobot_channel_key:
+            return
+
+        now_ts = time.time()
+        if self._last_svitlobot_ping_ts and (now_ts - self._last_svitlobot_ping_ts) < SVITLOBOT_PING_INTERVAL_S:
+            return
+
+        self._last_svitlobot_ping_ts = now_ts
+        self.hass.async_create_task(async_channel_ping(self.hass, self._svitlobot_channel_key))
+
     async def async_start(self) -> None:
         online, state, age = self._compute_online()
         now = dt_util.utcnow()
@@ -153,6 +169,10 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             self._online_since = None
 
         self._sync_data_without_notify(online, state)
+
+        # If already online at startup -> start pinging (first ping immediately)
+        if online:
+            self._fire_svitlobot_ping_if_needed()
 
         # Telegram startup notify (if enabled)
         if self._notify_on_start and self._telegram_enabled and self._token and self._chat_id:
@@ -224,6 +244,11 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         )
 
     async def _periodic_check(self, _now) -> None:
+        # ✅ Every 30 seconds while online -> ping svitlobot
+        if self.data and self.data.online:
+            self._fire_svitlobot_ping_if_needed()
+
+        # Probe when offline
         if self.data and self._probe_when_offline and (not self.data.online):
             now_ts = time.time()
             if now_ts - self._last_probe_ts >= self._probe_every:
@@ -240,6 +265,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
         now_ts = time.time()
 
+        # Optional refresh
         if self._refresh_every > 0 and (now_ts - self._last_refresh_ts >= self._refresh_every):
             self._last_refresh_ts = now_ts
             try:
@@ -304,6 +330,8 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
             duration_line = None
             extra = ""
 
+            became_online = False
+
             if prev_online is not None and prev_online != new_online:
                 if prev_online and (not new_online):
                     online_for = (now - self._online_since).total_seconds() if self._online_since else None
@@ -319,15 +347,21 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                     self._offline_since = None
                     if duration_line:
                         extra = f"Світла не було: {duration_line}\n"
+                    became_online = True
             else:
                 if new_online:
                     self._online_since = now
                     self._offline_since = None
+                    became_online = True
                 else:
                     self._offline_since = now
                     self._online_since = None
 
             self._sync_data_without_notify(new_online, current_state)
+
+            # When we become online -> ping immediately (then periodic will keep every 30s)
+            if new_online and became_online:
+                self._fire_svitlobot_ping_if_needed()
 
             # If Telegram disabled -> stop here (no notify)
             if (not self._telegram_enabled) or (not self._token) or (not self._chat_id):
@@ -335,16 +369,12 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
             title = "✅ Світло є" if new_online else "❌ Світло зникло"
 
-            reason_line = f"Reason: {reason}"
             if reason == "stale_timeout" and age is not None:
-                reason_line += f" (no updates for {int(age)}s)"
+                _ = age  # keep for future logging if needed
 
             voltage_line = ""
-            if current_state is not None:
-                if current_state in OFFLINE_STATES:
-                    voltage_line = ""
-                else:
-                    voltage_line = f"Напруга: {current_state} В\n"
+            if current_state is not None and current_state not in OFFLINE_STATES:
+                voltage_line = f"Напруга: {current_state} В\n"
 
             text = (
                 f"{title}\n\n"
