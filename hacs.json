@@ -1,5 +1,5 @@
 {
-  "name": "Power Watchdog (Telegram)",
+  "name": "Power Watchdog (Telegram+Svitlobot)",
   "content_in_root": false,
   "render_readme": true,
   "domains": ["power_watchdog"]
