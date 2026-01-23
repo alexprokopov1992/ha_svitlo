@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Power Watchdog",
+        "description": "Сповіщення в Telegram при зміні online/offline за датчиком напруги (наприклад, Tuya-розетки).",
+        "data": {
+          "telegram_token": "Telegram Bot Token",
+          "telegram_chat_id": "Telegram Chat ID",
+          "voltage_entity_id": "Датчик напруги (entity_id)",
+          "entity_id": "Сутність для контролю (legacy)",
+          "debounce_seconds": "Затримка (debounce), сек",
+          "stale_timeout_seconds": "Вважати офлайн, якщо немає оновлень N сек",
+          "refresh_seconds": "Примусове оновлення, сек",
+          "notify_on_start": "Сповіщати при запуску інтеграції",
+          "telegram_enabled": "Увімкнути Telegram-сповіщення",
+          "svitlobot_channel_key": "Ключ каналу SvitloBot"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Налаштування Power Watchdog",
+        "data": {
+          "telegram_enabled": "Увімкнути Telegram-сповіщення",
+          "svitlobot_channel_key": "Ключ каналу SvitloBot"
+        }
+      }
+    }
+  }
+}

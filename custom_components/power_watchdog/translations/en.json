@@ -3,13 +3,29 @@
     "step": {
       "user": {
         "title": "Power Watchdog",
-        "description": "Telegram alerts when watched entity goes online/offline.",
+        "description": "Telegram alerts when watched voltage sensor goes online/offline.",
         "data": {
           "telegram_token": "Telegram Bot Token",
           "telegram_chat_id": "Telegram Chat ID",
-          "entity_id": "Watched entity",
+          "voltage_entity_id": "Voltage entity",
+          "entity_id": "Watched entity (legacy)",
           "debounce_seconds": "Debounce seconds",
-          "stale_timeout_seconds": "Offline in no refresh for N sec"
+          "stale_timeout_seconds": "Offline if no updates for N seconds",
+          "refresh_seconds": "Force update interval (seconds)",
+          "notify_on_start": "Notify on integration start",
+          "telegram_enabled": "Enable Telegram notifications",
+          "svitlobot_channel_key": "SvitloBot channel key"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Power Watchdog settings",
+        "data": {
+          "telegram_enabled": "Enable Telegram notifications",
+          "svitlobot_channel_key": "SvitloBot channel key"
         }
       }
     }
