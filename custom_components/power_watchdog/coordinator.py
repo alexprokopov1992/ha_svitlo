@@ -36,7 +36,7 @@ from .svitlobot import async_channel_ping
 
 _LOGGER = logging.getLogger(__name__)
 
-SVITLOBOT_PING_INTERVAL_S = 30
+SVITLOBOT_PING_INTERVAL_S = 65
 
 
 @dataclass(frozen=True)
