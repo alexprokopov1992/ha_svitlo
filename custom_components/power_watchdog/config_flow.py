@@ -97,10 +97,68 @@ class PowerWatchdogOptionsFlow(config_entries.OptionsFlow):
 
         schema = vol.Schema(
             {
-                vol.Optional(CONF_TELEGRAM_ENABLED, default=bool(_get(CONF_TELEGRAM_ENABLED, DEFAULT_TELEGRAM_ENABLED))): selector.BooleanSelector(),
-                vol.Optional(CONF_SVITLOBOT_CHANNEL_KEY, default=str(_get(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY))): selector.TextSelector(
+                # Telegram
+                vol.Optional(
+                    CONF_TELEGRAM_ENABLED,
+                    default=bool(_get(CONF_TELEGRAM_ENABLED, DEFAULT_TELEGRAM_ENABLED)),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_TELEGRAM_TOKEN,
+                    default=str(_get(CONF_TELEGRAM_TOKEN, "")),
+                ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
+                vol.Optional(
+                    CONF_TELEGRAM_CHAT_ID,
+                    default=str(_get(CONF_TELEGRAM_CHAT_ID, "")),
+                ): selector.TextSelector(),
+
+                # SvitloBot
+                vol.Optional(
+                    CONF_SVITLOBOT_CHANNEL_KEY,
+                    default=str(_get(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY)),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+
+                # Timings
+                vol.Optional(
+                    CONF_DEBOUNCE_SECONDS,
+                    default=int(_get(CONF_DEBOUNCE_SECONDS, DEFAULT_DEBOUNCE_SECONDS)),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=120,
+                        step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_STALE_TIMEOUT_SECONDS,
+                    default=int(_get(CONF_STALE_TIMEOUT_SECONDS, DEFAULT_STALE_TIMEOUT_SECONDS)),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=3600,
+                        step=10,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_REFRESH_SECONDS,
+                    default=int(_get(CONF_REFRESH_SECONDS, DEFAULT_REFRESH_SECONDS)),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=600,
+                        step=5,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(
+                    CONF_NOTIFY_ON_START,
+                    default=bool(_get(CONF_NOTIFY_ON_START, DEFAULT_NOTIFY_ON_START)),
+                ): selector.BooleanSelector(),
             }
         )
 

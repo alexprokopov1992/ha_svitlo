@@ -25,7 +25,13 @@
         "title": "Power Watchdog settings",
         "data": {
           "telegram_enabled": "Enable Telegram notifications",
-          "svitlobot_channel_key": "SvitloBot channel key"
+          "telegram_token": "Telegram Bot Token",
+          "telegram_chat_id": "Telegram Chat ID",
+          "svitlobot_channel_key": "SvitloBot channel key",
+          "debounce_seconds": "Debounce seconds",
+          "stale_timeout_seconds": "Offline if no updates for N seconds",
+          "refresh_seconds": "Force update interval (seconds)",
+          "notify_on_start": "Notify on integration start"
         }
       }
     }
