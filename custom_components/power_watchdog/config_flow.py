@@ -81,7 +81,11 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class PowerWatchdogOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+        self._config_entry = config_entry
+
+    @property
+    def config_entry(self) -> config_entries.ConfigEntry:
+        return self._config_entry
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
