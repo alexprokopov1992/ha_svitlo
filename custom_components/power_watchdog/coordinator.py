@@ -30,6 +30,8 @@ from .const import (
     DEFAULT_TELEGRAM_ENABLED,
     CONF_SVITLOBOT_CHANNEL_KEY,
     DEFAULT_SVITLOBOT_CHANNEL_KEY,
+    CONF_SVITLOBOT_ENABLED,
+    DEFAULT_SVITLOBOT_ENABLED,
 )
 from .telegram import async_send_telegram
 from .svitlobot import async_channel_ping
@@ -106,6 +108,7 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self._refresh_every = int(_cfg(CONF_REFRESH_SECONDS, DEFAULT_REFRESH_SECONDS))
 
         self._telegram_enabled = bool(_cfg(CONF_TELEGRAM_ENABLED, DEFAULT_TELEGRAM_ENABLED))
+        self._svitlobot_enabled = bool(_cfg(CONF_SVITLOBOT_ENABLED, DEFAULT_SVITLOBOT_ENABLED))
         self._svitlobot_channel_key = str(_cfg(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY)).strip()
 
         self._probe_when_offline = True
@@ -147,6 +150,8 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
     def _fire_svitlobot_ping_if_needed(self) -> None:
         """Ping svitlobot, but not more often than SVITLOBOT_PING_INTERVAL_S."""
+        if not self._svitlobot_enabled:
+            return
         if not self._svitlobot_channel_key:
             return
 

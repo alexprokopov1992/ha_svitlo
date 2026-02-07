@@ -14,7 +14,8 @@
           "refresh_seconds": "Примусове оновлення, сек",
           "notify_on_start": "Сповіщати при запуску інтеграції",
           "telegram_enabled": "Увімкнути Telegram-сповіщення",
-          "svitlobot_channel_key": "Ключ каналу SvitloBot"
+          "svitlobot_channel_key": "Ключ каналу SvitloBot",
+          "svitlobot_enabled": "Увімкнути пінгування SvitloBot"
         }
       }
     }
@@ -31,7 +32,8 @@
           "debounce_seconds": "Затримка (debounce), сек",
           "stale_timeout_seconds": "Вважати офлайн, якщо немає оновлень N сек",
           "refresh_seconds": "Примусове оновлення, сек",
-          "notify_on_start": "Сповіщати при запуску інтеграції"
+          "notify_on_start": "Сповіщати при запуску інтеграції",
+          "svitlobot_enabled": "Увімкнути пінгування SvitloBot"
         }
       }
     }

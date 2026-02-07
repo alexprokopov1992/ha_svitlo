@@ -14,7 +14,8 @@
           "refresh_seconds": "Force update interval (seconds)",
           "notify_on_start": "Notify on integration start",
           "telegram_enabled": "Enable Telegram notifications",
-          "svitlobot_channel_key": "SvitloBot channel key"
+          "svitlobot_channel_key": "SvitloBot channel key",
+          "svitlobot_enabled": "Enable SvitloBot ping"
         }
       }
     }
@@ -31,7 +32,8 @@
           "debounce_seconds": "Debounce seconds",
           "stale_timeout_seconds": "Offline if no updates for N seconds",
           "refresh_seconds": "Force update interval (seconds)",
-          "notify_on_start": "Notify on integration start"
+          "notify_on_start": "Notify on integration start",
+          "svitlobot_enabled": "Enable SvitloBot ping"
         }
       }
     }

@@ -23,6 +23,8 @@ from .const import (
     DEFAULT_TELEGRAM_ENABLED,
     CONF_SVITLOBOT_CHANNEL_KEY,
     DEFAULT_SVITLOBOT_CHANNEL_KEY,
+    CONF_SVITLOBOT_ENABLED,
+    DEFAULT_SVITLOBOT_ENABLED,
 )
 
 
@@ -66,6 +68,7 @@ class PowerWatchdogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 # NEW (can be also set on first setup)
                 vol.Optional(CONF_TELEGRAM_ENABLED, default=DEFAULT_TELEGRAM_ENABLED): selector.BooleanSelector(),
+                vol.Optional(CONF_SVITLOBOT_ENABLED, default=DEFAULT_SVITLOBOT_ENABLED): selector.BooleanSelector(),
                 vol.Optional(CONF_SVITLOBOT_CHANNEL_KEY, default=DEFAULT_SVITLOBOT_CHANNEL_KEY): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
@@ -114,6 +117,10 @@ class PowerWatchdogOptionsFlow(config_entries.OptionsFlow):
                 ): selector.TextSelector(),
 
                 # SvitloBot
+                vol.Optional(
+                    CONF_SVITLOBOT_ENABLED,
+                    default=bool(_get(CONF_SVITLOBOT_ENABLED, DEFAULT_SVITLOBOT_ENABLED)),
+                ): selector.BooleanSelector(),
                 vol.Optional(
                     CONF_SVITLOBOT_CHANNEL_KEY,
                     default=str(_get(CONF_SVITLOBOT_CHANNEL_KEY, DEFAULT_SVITLOBOT_CHANNEL_KEY)),
