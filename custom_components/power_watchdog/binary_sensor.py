@@ -23,13 +23,15 @@ class PowerWatchdogOnlineSensor(CoordinatorEntity[PowerWatchdogCoordinator], Bin
 
     @property
     def is_on(self) -> bool:
-        data: WatchdogData = self.coordinator.data
-        return bool(data.online)
+        data = self.coordinator.data
+        return bool(data.online) if data else False
 
     @property
     def extra_state_attributes(self):
-        data: WatchdogData = self.coordinator.data
+        data = self.coordinator.data
         return {
-            "watched_entity_id": data.watched_entity_id,
-            "watched_state": data.state,
+            "watched_entity_id": data.watched_entity_id if data else None,
+            "watched_state": data.state if data else None,
+            "last_online_at": self.coordinator._last_online_at.isoformat() if self.coordinator._last_online_at else None,
+            "last_offline_at": self.coordinator._last_offline_at.isoformat() if self.coordinator._last_offline_at else None,
         }

@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
+from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_DEBOUNCE_SECONDS,
@@ -122,6 +123,23 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         # NEW: svitlobot ping throttling
         self._last_svitlobot_ping_ts = 0.0
 
+        self._store = Store(hass, 1, f"{self.entry.domain}.{self.entry.entry_id}")
+        self._last_online_at = None
+        self._last_offline_at = None
+
+    async def _load_persisted(self) -> None:
+        data = await self._store.async_load() or {}
+        self._last_online_at = dt_util.parse_datetime(data.get("last_online_at")) if data.get(
+            "last_online_at") else None
+        self._last_offline_at = dt_util.parse_datetime(data.get("last_offline_at")) if data.get(
+            "last_offline_at") else None
+
+    async def _save_persisted(self) -> None:
+        await self._store.async_save({
+            "last_online_at": self._last_online_at.isoformat() if self._last_online_at else None,
+            "last_offline_at": self._last_offline_at.isoformat() if self._last_offline_at else None,
+        })
+
     def _get_report_time(self, st) -> object:
         rep = getattr(st, "last_reported", None)
         return rep or st.last_updated
@@ -163,15 +181,18 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
         self.hass.async_create_task(async_channel_ping(self.hass, self._svitlobot_channel_key))
 
     async def async_start(self) -> None:
+        await self._load_persisted()
         online, state, age = self._compute_online()
         now = dt_util.utcnow()
 
         if online:
-            self._online_since = now
-            self._offline_since = None
+            if self._last_online_at is None:
+                self._last_online_at = now
         else:
-            self._offline_since = now
-            self._online_since = None
+            if self._last_offline_at is None:
+                self._last_offline_at = now
+
+        await self._save_persisted()
 
         self._sync_data_without_notify(online, state)
 
@@ -339,13 +360,22 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
 
             if prev_online is not None and prev_online != new_online:
                 if prev_online and (not new_online):
+                    # стало OFFLINE
+                    self._last_offline_at = now
+                    await self._save_persisted()
+
                     online_for = (now - self._online_since).total_seconds() if self._online_since else None
                     duration_line = _format_duration(online_for)
                     self._offline_since = now
                     self._online_since = None
                     if duration_line:
                         extra = f"Світло було: {duration_line}\n"
+
                 elif (not prev_online) and new_online:
+                    # стало ONLINE
+                    self._last_online_at = now
+                    await self._save_persisted()
+
                     offline_for = (now - self._offline_since).total_seconds() if self._offline_since else None
                     duration_line = _format_duration(offline_for)
                     self._online_since = now
@@ -354,13 +384,20 @@ class PowerWatchdogCoordinator(DataUpdateCoordinator[WatchdogData]):
                         extra = f"Світла не було: {duration_line}\n"
                     became_online = True
             else:
+                # перше визначення стану (або data ще не було)
                 if new_online:
                     self._online_since = now
                     self._offline_since = None
                     became_online = True
+                    if self._last_online_at is None:
+                        self._last_online_at = now
+                        await self._save_persisted()
                 else:
                     self._offline_since = now
                     self._online_since = None
+                    if self._last_offline_at is None:
+                        self._last_offline_at = now
+                        await self._save_persisted()
 
             self._sync_data_without_notify(new_online, current_state)
 
